@@ -1,0 +1,20 @@
+# 1. Ignorar absolutamente todo
+*
+
+# 2. No ignorar los directorios (necesario para poder entrar en ellos)
+!*/
+
+# 3. Las carpetas src de cualquier proyecto, serán admititdas
+!/*/src/*
+
+# 4. Ficheros admitidos de cualquier directorio
+!/*/*.bas
+!/*/*.sh
+!/*/*.
+!/*/*.md
+
+# 5. Ficheros admitidos de la raíz:
+!*.sh
+!*.
+!*.md
+!.gitignore
