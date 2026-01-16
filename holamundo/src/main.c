@@ -37,6 +37,7 @@ int main(void) {
       cpct_scanKeyboard();
    }
    printf("Has pulsado espacio\n\rEstoy muy contento Joseeee!!!");
+   printf("Biennnn");
    while (1){};
    return(0);
        

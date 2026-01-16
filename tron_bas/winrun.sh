@@ -1,10 +1,11 @@
-# make && /mnt/d/RETRO/cpc6128/emu/retroVirtualMachine/RetroVirtualMachine.exe -b=cpc6128 -s holamundo.sna
-# make && cpct_winape holamundo.dsk
+#!/bin/bash
+IDSK=~/cpctelera/cpctelera/tools/iDSK-0.13/bin/iDSK
+DSK=tron.dsk
+BAS=tron.bas
+$IDSK $DSK -n
+unix2dos $BAS
+$IDSK $DSK -i $BAS -t 0
 
-make
-
-DSK=holamundo.dsk
-SNA=holamundo.sna
 
 echo "---------------------------------"
 echo "Selecciona el emulador a usar:"
@@ -26,7 +27,8 @@ do
             # y escapamos las comillas internas con \ para el comando BASIC
             /mnt/d/RETRO/cpc6128/emu/retroVirtualMachine/RetroVirtualMachine.exe \
             -b=cpc6128 \
-            -s $SNA
+            -i $DSK \
+            -c="run\"$BAS\n"
             break
             ;;
         "Salir")
