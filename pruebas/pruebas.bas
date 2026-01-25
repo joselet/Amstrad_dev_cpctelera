@@ -40,3 +40,15 @@
 
 
 1
+
+
+1 ' inicio
+10 mode 1
+20 for x = 1 to 40
+30 for y = 1 to 23
+40 locate (x,y):   print "X"
+50 next y
+60 next x
+70 end
+
+1

@@ -1,0 +1,30 @@
+' prueba de parser de qbasic a basic.
+' para convertir y ejecutar:
+' ./qbas2bas.sh pruebas.qbas prueba.bas && ./chromerun.sh
+
+ mode 1:goto inicio
+
+principio:
+ for x = 1 to 40
+     for y = 1 to 23
+      locate x,y:   print chr$(143)
+     next y
+ next x
+inicio:
+ gosub print_enemigo
+ gosub print_jugador
+ input "0-5 vuelve, 6, imprime y acaba, 7 matriz e inicio, 8-1000 acaba",a
+ if a<5 then inicio:cls
+ if a=6 then gosub print_enemigo
+ if a=7 then goto principio
+ end
+
+print_enemigo:
+' codigos chr$ para players 248 249 250 251
+print chr$(250)
+return
+
+print_jugador:
+print chr$(251)
+return
+

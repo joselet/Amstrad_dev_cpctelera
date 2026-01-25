@@ -8,6 +8,7 @@
 !/*/src/*
 
 # 4. Ficheros admitidos de cualquier directorio
+!/*/*.qbas
 !/*/*.bas
 !/*/*.sh
 !/*/*.
