@@ -1,4 +1,5 @@
 mode 1
+randomize time
 defint a-z
 px=12:py=10:pax=12:pay=10
 ex=18:ey=10
@@ -25,13 +26,9 @@ bucle_juego:
     if py > 24 then py = 24
     ' no mover donde hay un enemigo
     if px = ex and py = ey then px = pax:py=pay  
-    ' movimiento del enemigo
-    locate 1,1
-    print "px - ex:";px-ex;"py - ey:";py-ey
-    locate 1,2
-    if (px-ex=0) then print"ni izquierda ni derecha       " else if (px-ex) < 0 then print"enemigo ira a la izquierda" else print "enemigo ira a la derecha   " 
-    locate 1,3
-    if (py-ey=0) then print" ni arriba ni abajo" else if (py-ey) < 0 then print"enemigo ira arriba   " else print "enemigo ira abajo    " 
+    ' movimiento del enemigo cada 5 frames
+    c = c + 1
+    if c > 4 then c = 0: gosub mover_enemigo
 frame
 
 'redibujar jugador (si cambió de posición)
@@ -50,3 +47,25 @@ print_jugador:
 pen 1:print chr$(250)
 return
 
+mover_enemigo:
+eax = ex: eay = ey
+if rnd > 0.9 then goto ia_retirada
+    ' IA: Perseguir al jugador
+    if ex < (px - 1) then ex = ex + 1
+    if ex > (px + 1) then ex = ex - 1
+    if py < ey then ey = ey - 1
+    if py > ey then ey = ey + 1
+    goto fin_ia_movimiento
+ia_retirada:
+    ' IA: Pequeña probabilidad de alejarse (retirada)
+    if ex <= px then ex = ex - 1 else ex = ex + 1
+    ' (si acivas esta línea, se alejará en diagonal) if ey <= py then ey = ey - 1 else ey = ey + 1
+fin_ia_movimiento:
+' Limites de pantalla para el enemigo
+if ex < 1 then ex = 1
+if ex > 40 then ex = 40
+if ey < 1 then ey = 1
+if ey > 24 then ey = 24
+if ex = px and ey = py then ex = eax: ey = eay
+if eax <> ex or eay <> ey then locate eax,eay:print " ":locate ex,ey:gosub print_enemigo
+return
