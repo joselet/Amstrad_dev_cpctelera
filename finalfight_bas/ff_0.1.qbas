@@ -1,0 +1,117 @@
+inicio:
+mode 1
+randomize time
+defint a-z
+' variables jugador
+' px py coordenada, pax pay coordenada anterior
+' pv vida del jugador 
+' ex ey coordenada, eax eay coordenada anterior
+' ev vida del enemigo 
+px=12:py=10:pax=12:pay=10:pv=10
+ex=18:ey=10:ev=10
+
+
+locate px,py:gosub print_jugador
+locate ex,ey:gosub print_enemigo
+gosub actualizar_marcador
+
+bucle_juego:
+    ' movimiento del jugador
+    pax = px:pay=py
+    IF INKEY(0) <> -1 THEN py = py-1 :' Amunt 
+    IF INKEY(2) <> -1 THEN py = py+1 :' Avall 
+    IF INKEY(8) <> -1 THEN px = px-1 :' Esquerra
+    IF INKEY(1) <> -1 THEN px = px+1 :' Dreta
+    IF INKEY(59) <> -1 THEN py = py-1 :'W
+    IF INKEY(60) <> -1 THEN py = py+1 :'S
+    IF INKEY(69) <> -1 THEN px = px-1 :'A
+    IF INKEY(61) <> -1 THEN px = px+1 :'D
+    IF INKEY(47) <> -1 THEN gosub jugador_ataca ' Espacio para golpear
+    ' detectar bordes de pantalla
+    if px < 1 then px = 1
+    if px > 40 then px = 40
+    if py < 1 then py = 1
+    if py > 24 then py = 24
+    ' no mover donde hay un enemigo
+    if px = ex and py = ey then px = pax:py=pay  
+    ' movimiento o ataque del enemigo cada 5 frames
+    c = c + 1
+    if c > 4 then c = 0: gosub mover_enemigo
+frame
+
+'redibujar jugador (si cambió de posición)
+if pax <> px or pay <> py then locate pax,pay:print " ":locate px,py:gosub print_jugador
+
+goto bucle_juego
+game_over:
+input "pulsa ENTER para una nueva partida",a$
+goto inicio
+end
+
+
+print_enemigo:
+' codigos chr$ para players 248 249 250 251
+    pen 2:print chr$(251)
+return
+
+print_jugador:
+    pen 1:print chr$(250)
+return
+
+actualizar_marcador:
+    locate 1,1:pen 1:print "VIDA: ";pv;:pen 2:print "   ENEMIGO: ";ev;" "
+return
+
+jugador_ataca:
+    ' Atacar solo si esta al lado en X y misma altura en Y
+    if abs(px-ex) <> 1 or py <> ey then return
+    ' Si esta en posicion, golpea
+    ev = ev - 1
+    sound 1,100,2,15 ' Sonido de golpe
+    gosub actualizar_marcador
+    if ev > 0 then return
+    ' Enemigo derrotado
+    locate ex,ey:pen 2:print "X" ' el cuerpo del enemigo
+    locate 15,12:print "YOU WIN!"
+    goto game_over
+return
+
+mover_enemigo:
+    ' Primero, comprobar si puede atacar.
+    if abs(px-ex) = 1 and py = ey then gosub ia_ataca
+
+    ' calcular movimiento
+    eax = ex: eay = ey
+    if rnd > 0.9 then goto ia_retirada
+    ' IA: Perseguir al jugador
+    if ex < (px - 1) then ex = ex + 1
+    if ex > (px + 1) then ex = ex - 1
+    if py < ey then ey = ey - 1
+    if py > ey then ey = ey + 1
+    goto fin_ia_movimiento
+ia_retirada:
+    ' IA: Pequeña probabilidad de alejarse (retirada)
+    if ex <= px then ex = ex - 1 else ex = ex + 1
+    ' (si activas esta línea, se alejará en diagonal) if ey <= py then ey = ey - 1 else ey = ey + 1
+fin_ia_movimiento:
+    ' Limites de pantalla para el enemigo
+    if ex < 1 then ex = 1
+    if ex > 40 then ex = 40
+    if ey < 1 then ey = 1
+    if ey > 24 then ey = 24
+    if ex = px and ey = py then ex = eax: ey = eay ' Evitar superposicion
+    if eax <> ex or eay <> ey then locate eax,eay:print " ":locate ex,ey:gosub print_enemigo
+return
+
+ia_ataca:
+    ' Esta en posicion de atacar. Hay una probabilidad de que lo haga
+    if rnd < 0.7 then return ' 70% de probabilidad de NO atacar (para que no sea una maquina)
+    pv = pv - 1
+    sound 4,150,2,15 ' Sonido de ser golpeado
+    gosub actualizar_marcador
+    if pv > 0 then return
+    ' Jugador derrotado
+    locate px,py:pen 1:print "X" ' Dibuja una X sobre el jugador
+    locate 15,12:print "GAME OVER"
+    goto game_over
+return
