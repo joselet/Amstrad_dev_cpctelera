@@ -1,7 +1,7 @@
 #!/bin/bash
 IDSK=~/cpctelera/cpctelera/tools/iDSK-0.13/bin/iDSK
-DSK=ffight.dsk
-BAS=ffight.bas
+DSK=ascii.dsk
+BAS=ascii.bas
 $IDSK $DSK -n
 unix2dos $BAS
 $IDSK $DSK -i $BAS -t 0
