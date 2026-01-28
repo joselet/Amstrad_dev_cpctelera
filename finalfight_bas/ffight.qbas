@@ -1,3 +1,7 @@
+'v0.2.1
+' simplificar el bucle de juego exportanto todo lo posible a subrutinas.
+' mejorar el parpadeo
+
 inicio:
 mode 1
 randomize time
@@ -16,7 +20,7 @@ px=12:py=10:pax=12:pay=10:pv=10
 round:
 cls
 for i=1 to lvl
-    ex(i)=int(rnd*35)+2:ey(i)=int(rnd*20)+2:ev(i)=10
+    ex(i)=int(rnd*35)+2:ey(i)=int(rnd*20)+2:ev(i)=10:eax(i)=ex(i):eay(i)=ey(i)
     locate ex(i),ey(i):gosub print_enemigo
 next
 
@@ -25,34 +29,12 @@ locate px,py:gosub print_jugador
 gosub actualizar_marcador
 
 bucle_juego:
-    ' movimiento del jugador
-    pax = px:pay=py
-    IF INKEY(0) <> -1 THEN py = py-1 :' Amunt 
-    IF INKEY(2) <> -1 THEN py = py+1 :' Avall 
-    IF INKEY(8) <> -1 THEN px = px-1 :' Esquerra
-    IF INKEY(1) <> -1 THEN px = px+1 :' Dreta
-    IF INKEY(59) <> -1 THEN py = py-1 :'W
-    IF INKEY(60) <> -1 THEN py = py+1 :'S
-    IF INKEY(69) <> -1 THEN px = px-1 :'A
-    IF INKEY(61) <> -1 THEN px = px+1 :'D
-    IF INKEY(47) <> -1 THEN gosub jugador_ataca ' Espacio para golpear
-    ' detectar bordes de pantalla
-    if px < 1 then px = 1
-    if px > 40 then px = 40
-    if py < 1 then py = 1
-    if py > 24 then py = 24
-    ' no mover donde hay un enemigo
-    for i=1 to lvl
-        if ev(i)>0 and px = ex(i) and py = ey(i) then px = pax:py=pay
-    next
+    gosub mover_jugador
     ' movimiento o ataque del enemigo cada 5 frames
     c = c + 1
     if c > 4 then c = 0: gosub mover_enemigos
 frame
-
-'redibujar jugador (si cambió de posición)
-if pax <> px or pay <> py then locate pax,pay:print " ":locate px,py:gosub print_jugador
-
+    gosub render_frame
 goto bucle_juego
 
 
@@ -106,6 +88,28 @@ sig_enemigo:
     next
 return
 
+mover_jugador:
+    pax = px:pay=py
+    IF INKEY(0) <> -1 THEN py = py-1 :' Amunt 
+    IF INKEY(2) <> -1 THEN py = py+1 :' Avall 
+    IF INKEY(8) <> -1 THEN px = px-1 :' Esquerra
+    IF INKEY(1) <> -1 THEN px = px+1 :' Dreta
+    IF INKEY(59) <> -1 THEN py = py-1 :'W
+    IF INKEY(60) <> -1 THEN py = py+1 :'S
+    IF INKEY(69) <> -1 THEN px = px-1 :'A
+    IF INKEY(61) <> -1 THEN px = px+1 :'D
+    IF INKEY(47) <> -1 THEN gosub jugador_ataca ' Espacio para golpear
+    ' detectar bordes de pantalla
+    if px < 1 then px = 1
+    if px > 40 then px = 40
+    if py < 1 then py = 1
+    if py > 24 then py = 24
+    ' no mover donde hay un enemigo
+    for i=1 to lvl
+        if ev(i)>0 and px = ex(i) and py = ey(i) then px = pax:py=pay
+    next
+return
+
 mover_enemigos:
     for i=1 to lvl
         if ev(i) > 0 then gosub ia_enemigo_i
@@ -114,11 +118,11 @@ return
 
 ia_enemigo_i:
     ' Primero, comprobar si puede atacar.
-    if abs(px-ex(i)) = 1 and py = ey(i) then gosub ia_ataca: return
+    if abs(px-ex(i)) = 1 and py = ey(i) then gosub ia_ataca
 
     ' calcular movimiento
     eax(i) = ex(i): eay(i) = ey(i)
-    if rnd > 0.9 then goto ia_retirada
+    if rnd > 0.7 then goto ia_retirada
     ' IA: Perseguir al jugador
     if ex(i) < (px - 1) then ex(i) = ex(i) + 1
     if ex(i) > (px + 1) then ex(i) = ex(i) - 1
@@ -142,9 +146,23 @@ fin_ia_movimiento:
     for k=1 to lvl
         if k<>i and ev(k)>0 and ex(i)=ex(k) and ey(i)=ey(k) then ex(i)=eax(i):ey(i)=eay(i):k=lvl
     next
-    
-    ' Dibujar si se ha movido
-    if eax(i) <> ex(i) or eay(i) <> ey(i) then locate eax(i),eay(i):print " ":locate ex(i),ey(i):gosub print_enemigo
+return
+
+render_frame:
+    ' 1. Borrar rastro jugador
+    if pax <> px or pay <> py then locate pax,pay:print " "
+    ' 2. Borrar rastro enemigos (solo si se movieron)
+    for i=1 to lvl
+        if ev(i)>0 and (eax(i)<>ex(i) or eay(i)<>ey(i)) then locate eax(i),eay(i):print " "
+    next
+    ' 3. Dibujar enemigos (SIEMPRE, por si el jugador los borró al pasar)
+    for i=1 to lvl
+        if ev(i)>0 then locate ex(i),ey(i):gosub print_enemigo
+        ' Sincronizar coords para detectar cambios en el siguiente frame
+        eax(i)=ex(i):eay(i)=ey(i)
+    next
+    ' 4. Dibujar jugador
+    locate px,py:gosub print_jugador
 return
 
 ia_ataca:
