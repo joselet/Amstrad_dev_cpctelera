@@ -1,0 +1,186 @@
+'v0.2.2
+' un intento en modo gráfico
+
+inicio:
+mode 1
+randomize time
+defint a-z
+tag
+' variables jugador
+' px py coordenada, pax pay coordenada anterior
+' pv vida del jugador 
+' ex ey coordenada, eax eay coordenada anterior
+' ev vida del enemigo
+pspeed=4:espeed=4 ' Velocidades en pixeles. Deben ser bajas para que sea jugable.
+charw=8:charh=8 ' Ancho/alto de los caracteres (un CHR$)
+atdist=12    ' Distancia de ataque en pixeles
+
+' multiples enemigos
+dim ex(5),ey(5),eax(5),eay(5),ev(5)
+lvl=1
+px=176:py=240:pax=176:pay=240:pv=10 ' Coordenadas en pixeles (equivale a 12,10 en texto)
+
+round:
+cls
+for i=1 to lvl
+    ex(i)=(int(rnd*39))*16 : ey(i)=(int(rnd*24))*16 ' Posicion aleatoria en la "rejilla"
+    ev(i)=10
+    eax(i)=ex(i):eay(i)=ey(i)
+    move ex(i),ey(i):gosub print_enemigo
+next
+
+move px,py:gosub print_jugador
+gosub actualizar_marcador
+
+bucle_juego:
+    gosub mover_jugador
+    ' movimiento o ataque del enemigo cada 5 frames
+    c = c + 1
+    if c > 4 then c = 0: gosub mover_enemigos
+frame
+    gosub render_frame
+goto bucle_juego
+
+
+game_over:
+input "pulsa ENTER para una nueva partida",a$
+lvl=1:pv=10
+goto round
+
+
+next_level:
+lvl=lvl+1
+if lvl=6 then print "PUDISTE CON TODOS!!":goto game_over
+print "Nivel ";lvl
+input "pulsa ENTER para continuar",a$
+goto round
+
+print_enemigo:
+' codigos chr$ para players 248 249 250 251
+    pen 2:print chr$(251);
+return
+
+print_jugador:
+    pen 1:print chr$(250);
+return
+
+actualizar_marcador:
+    ' Contar enemigos vivos
+    eviv=0
+    for j=1 to lvl: if ev(j)>0 then eviv=eviv+1
+    next
+    move 0,384:pen 1:print "VIDA: ";pv;:pen 2:print " ENEMIGOS: ";eviv;" ";
+    for j=1 to lvl
+        print "(";ev(j);")";
+    next
+    print " ";
+    if eviv=0 then move 224,208:print "YOU WIN!":goto next_level
+return
+
+jugador_ataca:
+    for i=1 to lvl
+        ' Si el enemigo esta muerto o lejos, saltamos al siguiente
+        if ev(i) <= 0 then goto sig_enemigo
+        if abs(px-ex(i)) > atdist or abs(py-ey(i)) > charh then goto sig_enemigo
+        ' Golpeamos
+        ev(i) = ev(i) - 1
+        sound 1,100,2,15 ' Sonido de golpe
+        gosub actualizar_marcador
+        if ev(i) <= 0 then move ex(i),ey(i):print " "; ' Borra enemigo muerto
+        i = lvl ' Forzamos salida del bucle limpiamente
+sig_enemigo:
+    next
+return
+
+mover_jugador:
+    pax = px:pay=py
+    IF INKEY(0) <> -1 THEN py = py+pspeed :' Amunt 
+    IF INKEY(2) <> -1 THEN py = py-pspeed :' Avall 
+    IF INKEY(8) <> -1 THEN px = px-pspeed :' Esquerra
+    IF INKEY(1) <> -1 THEN px = px+pspeed :' Dreta
+    IF INKEY(59) <> -1 THEN py = py+pspeed :'W
+    IF INKEY(60) <> -1 THEN py = py-pspeed :'S
+    IF INKEY(69) <> -1 THEN px = px-pspeed :'A
+    IF INKEY(61) <> -1 THEN px = px+pspeed :'D
+    IF INKEY(47) <> -1 THEN gosub jugador_ataca ' Espacio para golpear
+    ' detectar bordes de pantalla
+    if px < 0 then px = 0
+    if px > 639-charw then px = 639-charw
+    if py < 0 then py = 0
+    if py > 399-charh then py = 399-charh
+    ' no mover donde hay un enemigo
+    for i=1 to lvl
+        if ev(i)>0 and abs(px-ex(i))<charw and abs(py-ey(i))<charh then px=pax:py=pay
+    next
+return
+
+mover_enemigos:
+    for i=1 to lvl
+        if ev(i) > 0 then gosub ia_enemigo_i
+    next
+return
+
+ia_enemigo_i:
+    ' Primero, comprobar si puede atacar.
+    if abs(px-ex(i)) < atdist and abs(py-ey(i)) < charh then gosub ia_ataca
+
+    ' calcular movimiento
+    eax(i) = ex(i): eay(i) = ey(i)
+    if rnd > 0.7 then goto ia_retirada
+    ' IA: Perseguir al jugador
+    if ex(i) < (px - atdist) then ex(i) = ex(i) + espeed
+    if ex(i) > (px + atdist) then ex(i) = ex(i) - espeed
+    if py < ey(i) then ey(i) = ey(i) - espeed
+    if py > ey(i) then ey(i) = ey(i) + espeed
+    goto fin_ia_movimiento
+ia_retirada:
+    ' IA: Pequeña probabilidad de alejarse (retirada)
+    if ex(i) <= px then ex(i) = ex(i) - espeed else ex(i) = ex(i) + espeed
+fin_ia_movimiento:
+    ' Limites de pantalla para el enemigo
+    if ex(i) < 0 then ex(i) = 0
+    if ex(i) > 639-charw then ex(i) = 639-charw
+    if ey(i) < 0 then ey(i) = 0
+    if ey(i) > 399-charh then ey(i) = 399-charh
+    
+    ' Evitar superposicion con jugador
+    if abs(px-ex(i))<charw and abs(py-ey(i))<charh then ex(i)=eax(i):ey(i)=eay(i)
+
+    ' Evitar superposicion con otros enemigos
+    for k=1 to lvl
+        if k<>i and ev(k)>0 and abs(ex(i)-ex(k))<charw and abs(ey(i)-ey(k))<charh then ex(i)=eax(i):ey(i)=eay(i):k=lvl
+    next
+return
+
+render_frame:
+    ' NOTA: Al usar print " " para borrar, pueden quedar artefactos visuales
+    ' porque el movimiento ya no está alineado a la rejilla de 8x8 caracteres.
+    ' Una solución perfecta requeriría rutinas de sprites más complejas.
+    ' 1. Borrar rastro jugador
+    if pax <> px or pay <> py then move pax,pay:print " ";
+    ' 2. Borrar rastro enemigos
+    for i=1 to lvl
+        if ev(i)>0 and (eax(i)<>ex(i) or eay(i)<>ey(i)) then move eax(i),eay(i):print " ";
+    next
+    ' 3. Dibujar todo en las nuevas posiciones
+    for i=1 to lvl
+        if ev(i)>0 then move ex(i),ey(i):gosub print_enemigo
+        ' Sincronizar coords para detectar cambios en el siguiente frame
+        eax(i)=ex(i):eay(i)=ey(i)
+    next
+    ' 4. Dibujar jugador
+    move px,py:gosub print_jugador
+return
+
+ia_ataca:
+    ' Esta en posicion de atacar. Hay una probabilidad de que lo haga
+    if rnd < 0.7 then return ' 70% de probabilidad de NO atacar
+    pv = pv - 1
+    sound 4,150,2,15 ' Sonido de ser golpeado
+    gosub actualizar_marcador
+    if pv > 0 then return
+    ' Jugador derrotado
+    move px,py:pen 1:print "X" ' Dibuja una X sobre el jugador
+    move 224,208:print "GAME OVER"
+    goto game_over
+return
