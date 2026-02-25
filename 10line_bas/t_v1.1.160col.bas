@@ -1,4 +1,4 @@
-1 ' Versíón de 1 jugador, con galletas.
+1 ' Versíón de 1 jugador, con galletas. 4 líneas de código: 160 columnas
 1 '10 inicialización de pantalla, variables
 1 '20 lógica del jugador
 1 '30 logica de galletas
