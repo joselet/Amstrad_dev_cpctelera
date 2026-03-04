@@ -15,12 +15,12 @@
 1                                        80 columnas                          |
 1
 
-1 mode 1:o=10:t=time:y=120:x=50:vx=2:vy=0:print"LTA:";a:print"L:";d+3;"$: ";p
+1 mode 1:o=10:t=time:y=120:x=50:vx=2:vy=0:print "LTA:";a:print "L:";d+3;"$: ";p
 2 def FNp=INT(RND*350)+o:move o,o:draw o,362,3:draw 639,362:draw 639,o:draw o,o
-3 if inkey(0) = 0 then vy = 2:vx = 0 else if inkey(2) = 0 then vy = -2:vx = 0 
-4 if inkey(8) = 0 then vx = -2:vy = 0 else if inkey(1) = 0 then vx = 2:vy = 0
+3 if inkey(0) = 0 then vy =  2: vx = 0 else if inkey(2) = 0 then vy = -2:vx = 0 
+4 if inkey(8) = 0 then vx = -2: vy = 0 else if inkey(1) = 0 then vx =  2:vy = 0
 5 if c>99 then c=0:randomize time:plot FNp*2-8,FNp+2,1:plot x,y,2:SOUND 1,139,5
 6 c=c+1:x=x+vx:y=y+vy:if test(x,y)=1 then p=p+1:locate 9,2:print p:c=100:goto 5
 7 if x>639 then cls:print "CONGRATS, YOU FOUND A BUG AND ESCAPED THE GAME!":end
 8 frame:if test(x,y)<>0 then a=(time-t)/300:d=d-1:goto 9 else plot x,y,2:goto 3
-9 if d<-3 then cls:print "$:"p:input "GAME OVER (ENTER)",z$:run else goto 1
+9 if d<-3 then cls:print"Total $:"p:input"GAME OVER (ENTER)",z$:run else goto 1
