@@ -1,7 +1,7 @@
 #!/bin/bash
 IDSK=~/cpctelera/cpctelera/tools/iDSK-0.13/bin/iDSK
-DSK=window.dsk
-BAS=window.bas
+DSK=duel.dsk
+BAS=duel.bas
 $IDSK $DSK -n
 unix2dos $BAS
 $IDSK $DSK -i $BAS -t 0
