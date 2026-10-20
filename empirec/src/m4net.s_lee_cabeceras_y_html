@@ -1,0 +1,527 @@
+; -----------------------------------------------------------------------
+; m4net.s
+;
+; Modulo ensamblador (sintaxis sdasz80, CPCtelera/SDCC) con:
+;   - fw_print_char / fw_wait_key : wrappers de firmware (ya verificados
+;     en tu compilacion anterior: funcionan).
+;   - m4_get : peticion HTTP GET usando el protocolo de bajo nivel de la
+;     M4 Board (puertos &FE00/&FC00), portado desde el ejemplo publico
+;     M4Duke/M4examples/httpget.s
+;     https://github.com/M4Duke/M4examples/blob/master/httpget.s
+;
+; unsigned int m4_get(const char *host, const char *path,
+;                      unsigned char *dst, unsigned int bufsize);
+;
+;   host    = nombre de host sin path, ej "nosoft.es"
+;   path    = ruta + query string, ej "/services/.../empire.php?cmd=v|u|p"
+;   dst     = buffer donde copiar la respuesta
+;   bufsize = tamano de dst
+;
+;   Devuelve el numero de bytes copiados en dst, o 0xFFFF si hubo error
+;   (dns / socket / conexion / peticion demasiado larga para el
+;   protocolo de la M4, que limita cada paquete de comando a ~250 bytes).
+;
+; NOTA: la convencion de paso de parametros usada aqui (parametros en
+; la pila, primer parametro en SP+2, siguientes en SP+4, SP+6...) es la
+; misma que ya funciono para fw_print_char. Si algo no cuadra al
+; depurar, lo primero a revisar es precisamente esto.
+; -----------------------------------------------------------------------
+
+        .module m4net
+        .area  _CODE
+
+        .globl _fw_print_char
+        .globl _fw_wait_key
+        .globl _m4_get
+
+DATAPORT        = 0xFE00
+ACKPORT         = 0xFC00
+
+C_NETSOCKET     = 0x4331
+C_NETCONNECT    = 0x4332
+C_NETCLOSE      = 0x4333
+C_NETSEND       = 0x4334
+C_NETRECV       = 0x4335
+C_NETHOSTIP     = 0x4336
+
+; =========================================================================
+; void fw_print_char(unsigned char c)
+; =========================================================================
+_fw_print_char::
+        ld    hl, #2
+        add   hl, sp
+        ld    a, (hl)
+        push  ix                      ; IMPRESCINDIBLE: el firmware puede
+        push  iy                      ; tocar ix/iy, y SDCC los usa como
+        call  #0xBB5A                 ; puntero de marco para las variables
+        pop   iy                      ; locales del codigo C que nos llama.
+        pop   ix
+        ret
+
+; =========================================================================
+; unsigned char fw_wait_key(void)
+; =========================================================================
+_fw_wait_key::
+        push  ix
+        push  iy
+        call  #0xBB18                 ; a = codigo ascii de la tecla (no lo
+        pop   iy                      ; tocan los pop siguientes)
+        pop   ix
+        ret
+
+; =========================================================================
+; unsigned int m4_get(host, path, dst, bufsize)
+; =========================================================================
+_m4_get::
+        ; --- leer parametros de la pila (antes de tocar sp con push/pop) ---
+        ld    hl, #2
+        add   hl, sp
+        ld    a, (hl)
+        ld    (host_ptr), a
+        inc   hl
+        ld    a, (hl)
+        ld    (host_ptr+1), a
+
+        ld    hl, #4
+        add   hl, sp
+        ld    a, (hl)
+        ld    (path_ptr), a
+        inc   hl
+        ld    a, (hl)
+        ld    (path_ptr+1), a
+
+        ld    hl, #6
+        add   hl, sp
+        ld    a, (hl)
+        ld    (dst_cursor), a
+        inc   hl
+        ld    a, (hl)
+        ld    (dst_cursor+1), a
+
+        ld    hl, #8
+        add   hl, sp
+        ld    a, (hl)
+        ld    (space_left), a
+        inc   hl
+        ld    a, (hl)
+        ld    (space_left+1), a
+
+        push  ix
+        push  iy
+
+        ld    hl, #0
+        ld    (total_recv), hl
+
+        ; --- localizar la rom de la M4 (solo la primera vez) ---
+        ld    a, (m4_rom_num)
+        cp    #0xFF
+        call  z, find_m4_rom
+        ld    a, (m4_rom_num)
+        cp    #0xFF
+        jp    z, m4get_fail_nosock
+
+        ; --- construir el paquete de dns lookup con el host recibido ---
+        ld    hl, (host_ptr)
+        ld    de, #cmdlookup_host
+        call  strcopy                 ; b = longitud del host (sin el nulo)
+        ld    a, b
+        add   a, #3                   ; 2 (cmd id) + host + 1 (nulo)
+        ld    (cmdlookup), a
+
+        ; --- punteros a buffer de respuesta e info de sockets de la M4 ---
+        ld    hl, #0xFF02
+        ld    e, (hl)
+        inc   hl
+        ld    d, (hl)
+        push  de
+        pop   iy                      ; iy = buffer de respuesta de la M4
+
+        ld    hl, #0xFF06
+        ld    e, (hl)
+        inc   hl
+        ld    d, (hl)
+        push  de
+        pop   ix                      ; ix = info de sockets
+
+        ; --- resolver host a ip ---
+        ld    hl, #cmdlookup
+        call  sendcmd
+        ld    a, 3(iy)
+        cp    #1
+        jp    nz, m4get_fail_nosock
+wait_lookup:
+        ld    a, 0(ix)
+        cp    #5                      ; 5 = lookup en progreso
+        jr    z, wait_lookup
+        cp    #0
+        jp    nz, m4get_fail_nosock
+        ld    a, 4(ix)
+        ld    (ip_addr), a
+        ld    a, 5(ix)
+        ld    (ip_addr+1), a
+        ld    a, 6(ix)
+        ld    (ip_addr+2), a
+        ld    a, 7(ix)
+        ld    (ip_addr+3), a
+
+        ; --- pedir un socket ---
+        ld    hl, #cmdsocket
+        call  sendcmd
+        ld    a, 3(iy)
+        cp    #255
+        jp    z, m4get_fail_nosock
+
+        ld    (csocket), a
+        ld    (clsocket), a
+        ld    (rsocket), a
+        ld    (sendsock), a
+
+        ; ix = puntero al bloque de estado de ESTE socket (numero*16)
+        sla   a
+        sla   a
+        sla   a
+        sla   a
+        ld    hl, #0xFF06
+        ld    e, (hl)
+        inc   hl
+        ld    d, (hl)
+        ld    l, a
+        ld    h, #0
+        add   hl, de
+        push  hl
+        pop   ix
+
+        ; --- conectar ---
+        ld    hl, #cmdconnect
+        call  sendcmd
+        ld    a, 3(iy)
+        cp    #255
+        jp    z, m4get_fail_close
+wait_connect:
+        ld    a, (ix)
+        cp    #1                      ; 1 = conexion en progreso
+        jr    z, wait_connect
+        cp    #0
+        jp    nz, m4get_fail_close
+
+        ; --- construir la peticion GET dinamicamente ---
+        ld    hl, #0
+        ld    (reqlen), hl
+        ld    de, #sendhttpreq
+
+        ld    hl, #str_get
+        call  appendstr
+        ld    hl, (path_ptr)
+        call  appendstr
+        ld    hl, #str_http10
+        call  appendstr
+        ld    hl, #str_host
+        call  appendstr
+        ld    hl, (host_ptr)
+        call  appendstr
+        ld    hl, #str_crlf
+        call  appendstr
+        ld    hl, #str_ua
+        call  appendstr
+
+        ; comprobar que cabe en el limite de ~250 bytes del protocolo M4
+        ld    hl, (reqlen)
+        ld    a, h
+        or    a
+        jp    nz, m4get_fail_close
+        ld    a, l
+        cp    #246
+        jp    nc, m4get_fail_close
+
+        ld    a, (csocket)
+        ld    (sendsock), a
+        ld    hl, (reqlen)
+        ld    (sendsize), hl
+        ld    a, l
+        add   a, #5                   ; 2(cmdid)+1(sock)+2(size)+reqlen
+        ld    (cmdsend), a
+
+        ld    hl, #cmdsend
+        call  sendcmd
+wait_send:
+        ld    a, (ix)
+        cp    #2                      ; 2 = envio en progreso
+        jr    z, wait_send
+        cp    #0
+        jp    nz, m4get_fail_close
+
+        ; --- recibir la respuesta ---
+        ld    hl, #0
+        ld    (retry_cnt), hl
+recv_loop:
+        ld    hl, (space_left)
+        ld    a, h
+        or    l
+        jr    z, recv_done            ; sin sitio en dst: dejamos de copiar
+
+        ld    bc, #2048
+        call  recv
+        cp    #0xFF
+        jr    z, recv_done            ; error de red
+
+        ld    a, b
+        or    c
+        jr    nz, got_data
+
+        ; nada recibido todavia: NO concluimos que no hay mas datos por
+        ; esto solo (esos mismos flags son los que recv() acaba de mirar
+        ; hace un instante; comprobarlos otra vez aqui siempre da el
+        ; mismo resultado y provoca abandonar antes de que la respuesta
+        ; real llegue por wifi). Simplemente reintentamos, con un tope
+        ; de reintentos como unica salvaguarda contra un cuelgue real.
+        jr    recv_retry
+
+recv_retry:
+        ld    hl, (retry_cnt)
+        inc   hl
+        ld    (retry_cnt), hl
+        ld    a, h
+        cp    #0xFF                   ; salvaguarda: evita bucle infinito
+        jr    nz, recv_loop
+        jr    recv_done
+
+got_data:
+        ; n = min(bc, space_left)
+        ld    hl, (space_left)
+        or    a
+        sbc   hl, bc
+        jr    nc, have_enough_space
+        ld    bc, (space_left)
+have_enough_space:
+        ld    (copy_n), bc
+
+        push  iy
+        pop   hl                      ; hl = origen (buffer de la M4)
+        ld    de, (dst_cursor)
+copy_bytes:
+        ld    a, b
+        or    c
+        jr    z, copy_bytes_done
+        ld    a, (hl)
+        ld    (de), a
+        inc   hl
+        inc   de
+        dec   bc
+        jr    copy_bytes
+copy_bytes_done:
+        ld    (dst_cursor), de
+
+        ld    hl, (space_left)
+        ld    de, (copy_n)
+        or    a
+        sbc   hl, de
+        ld    (space_left), hl
+
+        ld    hl, (total_recv)
+        ld    de, (copy_n)
+        add   hl, de
+        ld    (total_recv), hl
+
+        ld    hl, #0
+        ld    (retry_cnt), hl
+        jr    recv_loop
+
+recv_done:
+        ld    hl, #cmdclose
+        call  sendcmd
+        ld    hl, (total_recv)
+        pop   iy
+        pop   ix
+        ret
+
+m4get_fail_close:
+        ld    hl, #cmdclose
+        call  sendcmd
+m4get_fail_nosock:
+        ld    hl, #0xFFFF
+        pop   iy
+        pop   ix
+        ret
+
+; -------------------------------------------------------------------
+; recv: pide hasta bc bytes al socket
+; in:  bc = tamano maximo a recibir
+; out: a = 0xFF si error, bc = bytes recibidos (0 si nada disponible)
+; -------------------------------------------------------------------
+recv:
+        ld    a, 2(ix)
+        or    a
+        jr    nz, recv_cont
+        ld    a, 3(ix)
+        or    a
+        jr    nz, recv_cont
+        ld    bc, #0
+        xor   a
+        ret
+recv_cont:
+        ld    a, c
+        ld    (rsize), a
+        ld    a, b
+        ld    (rsize+1), a
+        ld    hl, #cmdrecv
+        call  sendcmd
+        ld    a, 3(iy)
+        cp    #0
+        jr    z, recv_ok
+        ld    bc, #0
+        ld    a, #0xFF
+        ret
+recv_ok:
+        ld    c, 4(iy)
+        ld    b, 5(iy)
+        xor   a
+        ret
+
+; -------------------------------------------------------------------
+; sendcmd: envia el paquete de comando apuntado por hl
+; -------------------------------------------------------------------
+sendcmd:
+        ld    bc, #0xFE00
+        ld    d, (hl)
+        inc   d
+sendloop:
+        inc   b
+        outi
+        dec   d
+        jr    nz, sendloop
+        ld    bc, #0xFC00
+        out   (c), c
+        ret
+
+; -------------------------------------------------------------------
+; find_m4_rom: localiza el numero de rom de la M4 y lo guarda en
+; m4_rom_num (0xFF si no se encuentra)
+; -------------------------------------------------------------------
+find_m4_rom:
+        ld    iy, #m4_rom_name
+        ld    d, #127
+romloop:
+        push  de
+        ld    c, d
+        call  #0xB90F
+        ld    a, (0xC000)
+        cp    #1
+        jr    nz, not_this_rom
+        ld    a, (0xC004)
+        ld    l, a
+        ld    a, (0xC005)
+        ld    h, a
+        push  iy
+        pop   de
+cmp_loop:
+        ld    a, (de)
+        xor   (hl)
+        jr    nz, not_this_rom
+        ld    a, (de)
+        inc   hl
+        inc   de
+        and   #0x80
+        jr    z, cmp_loop
+        pop   de
+        ld    a, d
+        ld    (m4_rom_num), a
+        ret
+not_this_rom:
+        pop   de
+        dec   d
+        jr    nz, romloop
+        ld    a, #0xFF
+        ld    (m4_rom_num), a
+        ret
+
+; -------------------------------------------------------------------
+; strcopy: copia una cadena null-terminated de (hl) a (de), incluyendo
+; el byte nulo final. Devuelve en b la longitud SIN contar el nulo.
+; -------------------------------------------------------------------
+strcopy:
+        ld    b, #0
+strcopy_loop:
+        ld    a, (hl)
+        ld    (de), a
+        inc   hl
+        inc   de
+        or    a
+        ret   z
+        inc   b
+        jr    strcopy_loop
+
+; -------------------------------------------------------------------
+; appendstr: copia una cadena null-terminated de (hl) a (de) SIN el
+; byte nulo, avanzando de y acumulando la longitud en (reqlen).
+; -------------------------------------------------------------------
+appendstr:
+        ld    a, (hl)
+        or    a
+        ret   z
+        ld    (de), a
+        inc   hl
+        inc   de
+        push  hl
+        ld    hl, (reqlen)
+        inc   hl
+        ld    (reqlen), hl
+        pop   hl
+        jr    appendstr
+
+; =========================================================================
+; Datos / buffers (se dejan en _CODE a proposito: el proyecto tal y como
+; compilaba no usaba ninguna area _DATA, y el enlace usa --data-loc 0,
+; que no queremos arriesgarnos a pisar sin poder comprobarlo).
+; =========================================================================
+
+host_ptr:       .ds 2
+path_ptr:       .ds 2
+dst_cursor:     .ds 2
+space_left:     .ds 2
+total_recv:     .ds 2
+reqlen:         .ds 2
+copy_n:         .ds 2
+retry_cnt:      .ds 2
+
+str_get:        .ascii "GET "
+                .db 0
+str_http10:     .ascii " HTTP/1.0"
+                .db 13,10,0
+str_host:       .ascii "Host: "
+                .db 0
+str_crlf:       .db 13,10,0
+str_ua:         .ascii "User-Agent: m4"
+                .db 13,10,13,10,0
+
+cmdsocket:      .db 5
+                .dw C_NETSOCKET
+                .db 0,0,6              ; domain, type, protocolo tcp
+
+cmdconnect:     .db 9
+                .dw C_NETCONNECT
+csocket:        .db 0
+ip_addr:        .ds 4                  ; aqui se copia la ip resuelta por dns
+                .dw 80                 ; puerto
+
+cmdsend:        .ds 1
+                .dw C_NETSEND
+sendsock:       .db 0
+sendsize:       .dw 0
+sendhttpreq:    .ds 250
+
+cmdclose:       .db 3
+                .dw C_NETCLOSE
+clsocket:       .db 0
+
+cmdlookup:      .ds 1
+                .dw C_NETHOSTIP
+cmdlookup_host: .ds 64
+
+cmdrecv:        .db 5
+                .dw C_NETRECV
+rsocket:        .db 0
+rsize:          .dw 2048
+
+m4_rom_name:    .ascii "M4 BOAR"
+                .db 0xC4
+m4_rom_num:     .db 0xFF

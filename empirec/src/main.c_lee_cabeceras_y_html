@@ -1,0 +1,248 @@
+// ---------------------------------------------------------------------
+// main.c - Port a CPCtelera del juego por turnos via M4 Board
+// Equivalente al programa BASIC original.
+// ---------------------------------------------------------------------
+#include <cpctelera.h>
+#include <string.h>
+
+#define M4HOST   "nosoft.es"
+#define M4PATH   "/services/ESP8266BBS/games/empire/core/empire.php"
+#define BUFSIZE  2048   // tamano del buffer de respuesta HTTP
+#define LINEMAX  80     // longitud maxima de una linea de entrada/comando
+#define PATHMAX  200    // longitud maxima de la ruta+query construida
+
+// -----------------------------------------------------------------
+// Funciones que viven en el modulo ensamblador (m4net.s)
+// -----------------------------------------------------------------
+
+// Imprime un caracter llamando a la rutina de firmware TXT OUTPUT (&BB5A),
+// igual que hacia el "PRINT CHR$(k);" del BASIC.
+extern void fw_print_char(unsigned char c);
+
+// Espera una pulsacion de tecla llamando a KM WAIT CHAR (&BB18)
+// y devuelve su codigo ASCII, igual que el bucle de INPUT del BASIC.
+extern unsigned char fw_wait_key(void);
+
+// Realiza la peticion HTTP GET a host+path y copia hasta bufsize bytes
+// de la respuesta en dst. Devuelve el numero de bytes copiados, o
+// 0xFFFF si hubo algun error de red (DNS / socket / conexion / peticion
+// demasiado larga para el protocolo de bajo nivel de la M4).
+extern unsigned int m4_get(const char *host, const char *path,
+                            unsigned char *dst, unsigned int bufsize);
+
+// -----------------------------------------------------------------
+// Buffers globales (mejor global que en pila: la pila del CPC es
+// pequena y estos buffers son grandes)
+// -----------------------------------------------------------------
+unsigned char httpbuf[BUFSIZE];
+char pathbuf[PATHMAX];  // ruta + query string (sin el host)
+char c[LINEMAX + 1];    // ultimo texto tecleado por el jugador
+
+// -----------------------------------------------------------------
+// Utilidades
+// -----------------------------------------------------------------
+
+static void fw_print_str(const char *s)
+{
+    while (*s) fw_print_char((unsigned char)*s++);
+}
+
+// Lee una linea de teclado con eco por pantalla, terminada en ENTER.
+// Equivalente a "INPUT "",a$" del BASIC. No implementa edicion avanzada
+// (cursor izq/dcha), solo backspace simple.
+static void read_line(char *dst, unsigned char maxlen)
+{
+    unsigned char n = 0;
+    unsigned char k;
+
+    for (;;) {
+        k = fw_wait_key();
+
+        if (k == 13) break;                    // ENTER
+
+        if ((k == 127 || k == 8) && n > 0) {    // DEL / backspace
+            n--;
+            fw_print_char(8);
+            fw_print_char(' ');
+            fw_print_char(8);
+            continue;
+        }
+
+        if (k >= 32 && n < maxlen) {
+            dst[n++] = (char)k;
+            fw_print_char(k);
+        }
+    }
+
+    dst[n] = 0;
+    fw_print_char(13);
+    fw_print_char(10);
+}
+
+// NOTA: de momento no se usa (ver peticion() mas abajo, simplificada
+// para depurar). Se reactivara cuando confirmemos que la recepcion y
+// el pintado basico funcionan.
+//
+// Traduce un fragmento de escape ANSI (empieza en buf[idx] == 27/ESC)
+// a las secuencias de control PEN/PAPER del firmware Amstrad, replicando
+// exactamente la logica de la subrutina GOSUB 300 del BASIC original.
+// Devuelve el nuevo indice, ya avanzado (equivalente al "i" justo antes
+// del "NEXT i" del bucle principal en BASIC).
+static unsigned int ansi_translate(unsigned char *buf, unsigned int idx)
+{
+    unsigned char c1, col;
+
+    idx += 2;
+    c1 = buf[idx];
+
+    if (c1 == '0') {
+        // reset de color
+        fw_print_char(14); fw_print_char(0);
+        fw_print_char(15); fw_print_char(1);
+        idx += 1;
+        return idx;
+    }
+
+    idx += 3;
+    col = buf[idx];
+
+    switch (col) {
+        case '5':  // 53 - rojo/negro
+            fw_print_char(14); fw_print_char(3);
+            fw_print_char(15); fw_print_char(0);
+            break;
+        case '3':  // 51 - negro/cyan
+            fw_print_char(15); fw_print_char(2);
+            break;
+        case '2':  // 50 - cyan/negro
+            fw_print_char(14); fw_print_char(2);
+            fw_print_char(15); fw_print_char(0);
+            break;
+        case '4':  // 52 - blanco/cyan
+            fw_print_char(14); fw_print_char(1);
+            fw_print_char(15); fw_print_char(2);
+            break;
+        case '1':  // 49 - negro/rojo
+            fw_print_char(15); fw_print_char(3);
+            break;
+        case '0':  // 48 - blanco/negro
+            fw_print_char(14); fw_print_char(1);
+            fw_print_char(15); fw_print_char(0);
+            break;
+        case '6':  // 54 - cyan/blanco
+            fw_print_char(14); fw_print_char(2);
+            fw_print_char(15); fw_print_char(1);
+            break;
+        case '[':  // 91
+            cpct_clearScreen(0x00);
+            break;
+        default:
+            break;
+    }
+
+    idx += 1;
+    return idx;
+}
+
+// Imprime un entero sin signo en decimal, sin usar printf (mas ligero
+// y sin dependencias de stdio en el binario).
+static void print_uint16(unsigned int v)
+{
+    char buf[6];
+    unsigned char i = 0;
+
+    if (v == 0) { fw_print_char('0'); return; }
+
+    while (v > 0 && i < 5) {
+        buf[i++] = (char)('0' + (v % 10));
+        v /= 10;
+    }
+    while (i > 0) fw_print_char(buf[--i]);
+}
+
+// Equivalente a la subrutina "peticion" (GOSUB 200) del BASIC, pero
+// TEMPORALMENTE simplificada e instrumentada para depurar:
+//  - imprime "PIDIENDO..." antes de llamar a m4_get (si esto no llega
+//    a verse, el problema esta antes de la llamada)
+//  - imprime "N=<numero>" justo despues de la llamada, ANTES de tocar
+//    el buffer (si esto no llega a verse, m4_get se queda colgado
+//    dentro de m4net.s y no vuelve nunca)
+//  - imprime el buffer IGNORANDO bytes de control/ANSI (solo caracteres
+//    imprimibles 32-126), para comprobar si el contenido recibido es
+//    texto legible, sin arriesgarnos a un bug en ansi_translate
+//  - lee la siguiente linea tecleada por el jugador en "answer"
+static void peticion(const char *path, char *answer, unsigned char answermax)
+{
+    unsigned int n, i;
+    unsigned char k;
+
+    fw_print_str("PIDIENDO...\r\n");
+
+    n = m4_get(M4HOST, path, httpbuf, BUFSIZE);
+
+    fw_print_str("N=");
+    print_uint16(n);
+    fw_print_str("\r\n");
+
+    if (n == 0xFFFF) {
+        fw_print_str("ERROR DE RED\r\n");
+        answer[0] = 0;
+        return;
+    }
+
+    // Deteccion de "SALIENDO~": 'S' en la posicion 0 y '~' en la posicion 8
+    if (n > 8 && httpbuf[0] == 'S' && httpbuf[8] == '~') {
+        cpct_clearScreen(0x00);
+        fw_print_str("Hasta la proxima Almirante");
+        for (;;) { } // fin de partida: nos quedamos aqui
+    }
+
+    for (i = 0; i < BUFSIZE && i < n; i++) {
+        k = httpbuf[i];
+
+        if (k == '~') break;              // fin del mensaje (chr$126)
+
+        // De momento ignoramos control/ANSI (incluido ESC) para
+        // aislar el problema: solo pintamos caracteres imprimibles.
+        if (k < 32 || k > 126) continue;
+
+        fw_print_char(k);
+    }
+
+    fw_print_str("\r\n---FIN---\r\n");
+
+    read_line(answer, answermax);
+}
+
+// -----------------------------------------------------------------
+// Programa principal - version simplificada para depurar el ciclo
+// basico: enviar peticion -> imprimir respuesta -> leer lo tecleado
+// -> usarlo para construir la siguiente peticion -> repetir.
+//
+// De momento NO reproduce el login en dos fases (usuario/password)
+// del BASIC original: cada linea que teclees se manda tal cual como
+// "?cmd=...". Una vez confirmado que esto funciona bien, se puede
+// recuperar el flujo de 3 fases (usuario -> password -> "c|u|p").
+// -----------------------------------------------------------------
+void main(void)
+{
+    cpct_setVideoMode(1);
+
+    // INK 0,0 : INK 1,26 : INK 2,13 : INK 3,6 : BORDER 0
+    cpct_setPALColour(0, 0x00);
+    cpct_setPALColour(1, 0x1A);
+    cpct_setPALColour(2, 0x0D);
+    cpct_setPALColour(3, 0x06);
+    cpct_setBorder(0x00);
+
+    strcpy(pathbuf, M4PATH);   // primera peticion: sin parametros
+    c[0] = 0;
+
+    for (;;) {
+        peticion(pathbuf, c, LINEMAX);   // GET a pathbuf, imprime, lee "c"
+
+        strcpy(pathbuf, M4PATH);
+        strcat(pathbuf, "?cmd=");
+        strcat(pathbuf, c);
+    }
+}
