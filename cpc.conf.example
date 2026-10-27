@@ -1,0 +1,18 @@
+# Configuración de cpc.sh para este ordenador.
+# Copia este fichero como cpc.conf (no se sube a git) y ajusta las rutas.
+# Las rutas son de Linux: desde WSL los discos de Windows están en /mnt/<letra>/...
+
+# Emulador por defecto: cap32, winape o rvm (se puede cambiar con ./cpc.sh run ... -e winape)
+EMU=cap32
+
+# Caprice32 (portable, no necesita instalarse). En Linux nativo basta con CAP32=cap32 si está en el PATH.
+CAP32=/mnt/e/cajondesastre/test/amstrad_dev/Amstrad_asm/tools/cap32/cap32.exe
+
+# WinAPE
+WINAPE=
+
+# RetroVirtualMachine
+RVM=
+
+# Solo si los comandos cpct_* no están en el PATH (p.ej. ~/cpctelera/cpctelera)
+# CPCT_PATH=

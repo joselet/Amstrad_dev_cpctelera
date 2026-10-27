@@ -19,3 +19,5 @@
 !*.
 !*.md
 !.gitignore
+!.gitattributes
+!cpc.conf.example
