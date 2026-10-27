@@ -101,7 +101,8 @@ build_cpct() {
         for f in "$tmp/$name"/* "$tmp/$name"/.vscode; do
             [ -e "$f" ] || continue
             [ "$(basename "$f")" = src ] && continue
-            [ -e "$dir/$(basename "$f")" ] || cp -r "$f" "$dir/"
+            # -n: no pisa lo que ya exista (p. ej. un cfg/image_conversion.mk versionado)
+            cp -rn "$f" "$dir/"
         done
         rm -rf "$tmp"
     fi

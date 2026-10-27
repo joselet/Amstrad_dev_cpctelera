@@ -27,7 +27,8 @@ Programas y pruebas para Amstrad CPC: BASIC y C/ensamblador con CPCtelera. El us
 ## Estructura y convenciones
 - `*_bas/`: BASIC de Locomotive en ASCII con LF (cpc.sh lo convierte). `.qbas`: BASIC con etiquetas en vez de números de línea.
 - Carpetas con `src/` (`holamundo/`, `example/`, `empirec/`...): proyectos CPCtelera; solo se versiona `src/`.
-- `.gitignore` es una lista blanca: solo `src/`, `*.bas`, `*.qbas`, `*.sh`, `*.md` (+ `cpc.conf.example`, `.gitattributes`). Un tipo de fichero nuevo (p. ej. sprites `.png`, mapas `.tmx`) hay que añadirlo explícitamente.
+- `.gitignore` es una lista blanca: solo `src/`, `img/`, `*.bas`, `*.qbas`, `*.sh`, `*.md` (+ `cpc.conf.example`, `.gitattributes`). Un tipo de fichero nuevo (p. ej. mapas `.tmx`) hay que añadirlo explícitamente. Si un proyecto usa conversión de imágenes, su `cfg/image_conversion.mk` se añade a mano (ver `claudegame/`).
+- CPCtelera no inicializa las variables globales con valor inicial: usar locales o `const`.
 - Nombres AMSDOS: máximo 8 caracteres, **solo letras y números** (con `_` el `RUN"..."` da "Bad command"). Proyectos nuevos con nombre corto así.
 - `.gitattributes` fuerza LF en `*.sh` (si no, bash falla al clonar en Windows).
 

@@ -14,6 +14,12 @@
 !/*/*.
 !/*/*.md
 
+# 4b. Gráficos de los proyectos CPCtelera: los PNG (y su script) en img/
+#     y la configuración que los convierte a C (solo en los proyectos que la usan)
+!/*/img/*
+!/claudegame/cfg/image_conversion.mk
+!/vaqueros/cfg/image_conversion.mk
+
 # 5. Ficheros admitidos de la raíz:
 !*.sh
 !*.
