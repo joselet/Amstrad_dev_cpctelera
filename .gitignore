@@ -20,6 +20,13 @@
 !/claudegame/cfg/image_conversion.mk
 !/vaqueros/cfg/image_conversion.mk
 
+# 4c. kung-fu: generador en Python (sprites, fondo, música...) y su configuración
+#     (PROJNAME sin guion y el código en 0x0100, que cpct_mkproject no pondría)
+#     y los datos generados (así compila sin tener que ejecutar Python)
+!/kung-fu/gen/*.py
+!/kung-fu/cfg/build_config.mk
+!/kung-fu/src/datos/*
+
 # 5. Ficheros admitidos de la raíz:
 !*.sh
 !*.
